@@ -2571,4 +2571,581 @@ require(["jquery", "system", 'layui', 'layuicommon'], function () {
 
 
 
-### 
+### agent_manage.js
+
+存在的问题，节点复制时，关系紊乱
+
+```js
+require.config({
+    paths: {
+        jquery: '../../sys/jquery',
+        system: '../../sys/system',
+        layui: "../../layui-btkj/layui",
+        config: "../../js/layui_config"
+    },
+    shim: {
+        "system": {
+            deps: ["jquery"]
+        },
+        "layui": {
+            deps: ["jquery", "system"]
+        },
+        "config": {
+            deps: ["layui"]
+        }
+    },
+    waitSeconds: 0
+});
+
+objdata = {
+    agent_id:'',
+    pluginList: []
+};
+
+require(["jquery", "system", "layui"], function () {
+    layui.use(['table', 'form','layer'], function () {
+        let table = layui.table;
+        let form = layui.form;
+        let layer = jQuery.getparent().layer;
+
+        // 初始化
+        initAgentTable();
+
+        // 搜索
+        $("#searchAgent").click(function () {
+            const search = $("#agentName").val(); // 拿到输入框的值
+            var status = $("#search_status").val();
+
+            objdata.objwhere = {}
+            if(search){
+                objdata.objwhere.agentName = [search];
+            }
+            if(status){
+                objdata.objwhere.status = [status];
+            }
+            // 重新加载table
+            table.reload('agentTable', {
+                where: {
+                    swhere: $.msgwhere(objdata.objwhere), // 后端的laywhere接收 数据格式为json
+                    fields: 'ag.id',
+                    types:'asc'
+                },
+                page: {
+                    curr: 1
+                }
+            })
+        })
+        // 重置
+        $("#resetSearch").click(function () {
+            // 清空搜索条件 和状态
+            $("#pluginName").val("");
+            $("#search_status").val("");
+            objdata.objwhere = {};
+            table.reload('pluginTable', {
+                where: {
+                    swhere: $.msgwhere(objdata.objwhere),
+                    fields: 'id',
+                    types: 'asc'
+                },
+                page: {
+                    curr: 1
+                }
+            })
+        })
+
+        // 智能体添加
+        $("#addAgent").click((e) => {
+
+            layer.open({
+                type: 2,
+                title: "添加",
+                shadeClose: false,
+                area: ['620px', '700px'],
+                content: 'html/agent/agent_add_edit.html?v=' + Arg("v") + '&type=' + "add" + '&mid=' + Arg("mid"),
+                success: function (layero, index) {
+                },
+                btn: ["保存", "取消"],
+                yes: function (index, layero) {     //或者使用btn1
+                    let w = layero.find('iframe')[0].contentWindow;
+                    w.$("#saveOK").trigger("click", function () {  //提交按钮
+
+                        setTimeout(function (){
+                            table.reload('agentTable');
+                        }, 500)
+
+                        layer.close(index);        //"btnok" 被点击后，关闭当前的模态窗口。
+                    });
+                },
+                no: function (index, layero) {
+                    table.reload('agentTable');
+                    layer.close(index);        //"editOK" 被点击后，关闭当前的模态窗口。
+                }
+            });
+        });
+
+        // 批量删除
+        $("#delAgentsBtn").click(() => {
+            let layer = jQuery.getparent().layer;
+            let delList = [];
+            let checkStatus = table.checkStatus('agentTable');
+            checkStatus.data.forEach(function (item) {
+                delList.push(item.id);
+            });
+            if(delList.length === 0){
+                layer.msg("请选择要删除的项");
+                return;
+            }
+            layer.confirm('请确认是否删除选中数据?', function (index) {
+                layer.close(index);
+                $.sm((re, err) => {
+                    if (err) {
+                        layer.msg(err);
+                    } else {
+                        layer.msg("删除成功！");
+                        table.reload('agentTable');
+                    }
+                }, ["w_agent.update", JSON.stringify({
+                    isdel: "1"
+                }), $.msgwhere({ids: $.msgpJoin(delList)})])
+            });
+        })
+
+        // 导入解析
+        $("#importAgent").click(() => {
+            layer.open({
+                type: 2,
+                title: "导入解析",
+                shadeClose: false,
+                area: ['1200px', '900px'],
+                content: 'html/agent/agent_node_import.html?v=' + Arg("v") + '&type=' + "agent" + '&mid=' + Arg("mid"),
+                success: function (layero, index) {
+                },
+                // 出错提示
+                error: function (index, err) {
+                    layer.msg(err);
+                },
+                btn: ["保存", "取消"],
+                yes: function (index, layero) {
+
+                }
+            })
+        })
+
+
+
+    });
+    function initAgentTable() {
+        let table = layui.table;
+        let layer = jQuery.getparent().layer;
+        let form = layui.form;
+
+        $.sm(function (re, err){
+            if(err){
+                layer.msg(err);
+            }else{
+                objdata.pluginList = re;
+            }
+        }, ["w_plugin.getIdAndName"])
+
+        table.render({
+            elem: '#agentTable',
+            url: $.layurl + '?' + $.getSmStr(['w_agent.getList']),
+            height: 'full-' + ($("#laytable").offset().top + 30),
+            page: true,
+            where: {
+                fields: 'ag.id',  // 排序字段
+                types: 'asc'
+            },
+            cols: [[
+                {type: 'checkbox'},
+                {field: 'display_sort', width: 100,align: 'center', title: '显示排序',sort: true},
+                {field: 'id', width: 80, title: 'ID',align: 'center', sort: true},
+                {field: 'agent_name', width: 100, align: 'center',title: '智能体名称'},
+                {field: 'logo', width: 100, title: '智能体封面', align: 'center', templet: function ( d){
+                        if (/^\d+$/.test(d.logo)) {
+                            const plugin = objdata.pluginList.find(item => item.id == d.logo);
+                            return '<span>' + plugin.plugin_name + '(ID: ' + d.logo + ')</span>';
+                        } else if (d.logo) {
+                            // 否则作为图片显示
+                            return '<img src="' + d.logo + '" style="width: 50px; height: 50px; padding: 2px" onerror="this.style.display=\'none\'">';
+                        } else {
+                            return '<span>无封面</span>';
+                        }
+                    }},
+                {field: 'description', width: 80,align: 'center', title: '描述'},
+                {field: 'applicable_end', title: '适用端',align: 'center', width: 200},
+                {field: 'applicable_role', title: '适用角色', align: 'center',width: 200},
+                {field: 'num', title: '节点数量', width: 160,align: 'center', templet: "#numTpl"},
+                {field: 'time_granularity', title: '时间维度', align: 'center',width: 100},
+                // {field: 'function_type', title: '所属功能',align: 'center', width: 200},
+                // { field: 'creatime', title: '创建时间',align: 'center', width: 200},
+                // { field: 'altime', title: '更新时间',align: 'center', width: 200},
+                {field: 'status', title: '状态', width: 100,align: 'center', templet: "#statusTpl"},
+                {fixed: 'right', title: '操作', align: 'center',width: 230, minWidth: 200, templet:'#agent_handle'}
+            ]],
+            toolbar: '#toolbar', //工具栏
+            defaultToolbar: ['filter', 'print', 'exports'], // 筛选  打印  导出
+
+        });
+
+        form.on('switch(status-enable)', function (obj) {
+            console.log(obj);
+
+            $.sm(function (re, err) {
+                if (err) {
+                    layer.msg(err);
+                } else {
+                    layer.msg('修改成功');
+                }
+            }, ["w_agent.enable", obj.value, this.checked ? 0 : 1]);
+        });
+
+        // 触发单元格工具事件
+        table.on('tool(agentTable)', function (obj) {
+            let data = obj.data; // 获得当前行数据
+            let agentId = data.id;
+            let agentName = data.agent_name;
+
+            switch (obj.event){
+                case 'edit':
+                    editFunc(agentId,agentName);
+                    break;
+                case 'del':
+                    delFunc(data,agentId);
+                    break;
+                case 'addNode':
+                    addNodeFunc(agentId,agentName);
+                    break;
+                case 'copyAgent':
+                    copyAgentFunc(agentId,agentName);
+                    break;
+                case 'nodeList':
+                    nodeListFunc(agentId,agentName);
+                    break;
+                case 'nodeNum':
+                    jumpGraph(agentId);
+                    break;
+
+            }
+        });
+
+        function editFunc(agentId,agentName) {
+            jQuery.getparent().layer.open({
+                type: 2,
+                title: "修改"+agentName+"智能体",
+                shadeClose: false,
+                area: ['620px', '700px'],
+                content: 'html/agent/agent_add_edit.html?v=' + Arg("v") + '&type=' + "update" + '&mid=' + Arg("mid") + "&id=" + agentId,
+                success: function (layero, index) {
+                },
+                btn: ["保存", "取消"],
+                yes: function (index, layero) {     //或者使用btn1
+                    let w = layero.find('iframe')[0].contentWindow;
+                    w.$("#saveOK").trigger("click", function () {//提交按钮
+                        layer.close(index)
+                        table.reload('agentTable');
+                    });
+                },
+                no: function (index, layero) {
+                    layer.close(index);        //"editOK" 被点击后，关闭当前的模态窗口。
+                    table.reload('agentTable');
+                }
+            });
+        }
+
+        function delFunc(data,agentId){
+            layer.confirm('真的删除智能体' + data.agent_name + '吗？', function (index) {
+                layer.close(index);
+                // 向服务端发送删除指令
+                $.sm((re, err) => {
+                    if (re) {
+                        layer.msg("删除成功！");
+                    } else {
+                        layer.msg(err);
+                    }
+                    table.reload('agentTable');
+                }, ["w_agent.update", JSON.stringify({
+                    isdel: "1"
+                }), $.msgwhere({id: [agentId]})]);
+            });
+        }
+
+        // 为只能体添加节点
+        function addNodeFunc(agentId,agentName){
+            jQuery.getparent().layer.open({
+                type: 2,
+                title: "为智能体 --->"+ agentName+ " <--- 添加节点",
+                shadeClose: false,
+                area: ['620px', '700px'],
+                content: 'html/agent/node_add_edit.html?v=' + Arg("v") + '&type=' + "add" + '&mid=' + Arg("mid") + "&id=" + agentId,
+                success: function (layero, index) {
+                },
+                btn: ["保存", "取消"],
+                yes: function (index, layero) {     //或者使用btn1
+                    let w = layero.find('iframe')[0].contentWindow;
+                    w.$("#saveOK").trigger("click", function () {//提交按钮
+                        layer.close(index)
+                        table.reload('agentTable');
+                    });
+                },
+                no: function (index, layero) {
+                    layer.close(index);        //"editOK" 被点击后，关闭当前的模态窗口。
+                    table.reload('agentTable');
+                }
+            });
+        }
+
+        /* TODO 复制智能体 需要优化
+            存在的问题  与数据库交互次数过多  但是父节点这个又需要先去数据库拿到
+            存在优化空间
+            但是现在智能体数量和节点在正式线上数据量不是很大  暂且这样
+        * */
+        function copyAgentFunc(agentId, agentName) {
+            // 弹出选择框，让用户选择复制类型
+            let content = `
+                <div style="padding: 20px;">
+                    <p style="margin-bottom: 15px;">请选择复制类型：</p>
+                    <div>
+                        <label style="display: block; margin-bottom: 10px; cursor: pointer;">
+                            <input type="radio" name="copyType" value="agent" checked style="margin-right: 8px;">
+                            只复制智能体
+                        </label>
+                        <label style="display: block; cursor: pointer;">
+                            <input type="radio" name="copyType" value="all" style="margin-right: 8px;">
+                            复制智能体及其节点
+                        </label>
+                    </div>
+                </div>
+            `;
+
+            layer.confirm(content, {
+                title: '复制' + agentName + '智能体',
+                btn: ['确定', '取消'],
+                btn1: function(index, layero) {
+                    let selectedType = $(layero).find('input[name="copyType"]:checked').val();
+                    layer.close(index);
+
+                    if (selectedType) {
+                        copyAgent(agentId, selectedType);
+                    } else {
+                        layer.msg('请选择复制类型');
+                    }
+                }
+            });
+        }
+
+        async function copyAgent(agentId, type) {
+            try {
+                const loadingMsg = type === 'all' ? '正在复制智能体及其节点...' : '正在复制智能体...';
+                layer.msg(loadingMsg);
+
+                // 获取智能体数据
+                const agentData = await new Promise((resolve, reject) => {
+                    $.sm(function (re, err) {
+                        if (err) {
+                            reject(new Error('获取智能体数据失败：' + err));
+                        } else {
+                            resolve(re[0]);
+                        }
+                    }, ["w_agent.selectById", $.msgwhere({id: [agentId]})]);
+                });
+
+                if (!agentData) {
+                    layer.msg('智能体数据为空，无法复制');
+                    return;
+                }
+
+                // 清洗智能体数据，清除原有的id、创建时间和更新时间
+                const cleanAgentData = {...agentData};
+                delete cleanAgentData.id;
+                delete cleanAgentData.creatime;
+                delete cleanAgentData.altime;
+
+                if (type === 'agent') {
+                    // 只复制智能体
+                    await new Promise((resolve, reject) => {
+                        $.sm(function (re, err) {
+                            if (err) {
+                                reject(new Error('插入智能体失败：' + err));
+                            } else {
+                                resolve(re);
+                            }
+                        }, ["w_agent.add", JSON.stringify(cleanAgentData)]);
+                    });
+
+                    layer.msg('复制智能体成功');
+                    table.reload('agentTable');
+                } else {
+                    // 复制智能体及其节点
+                    await copyAgentWithNodes(cleanAgentData, agentId);
+                }
+
+            } catch (error) {
+                layer.msg('复制失败：' + error.message);
+                console.error('复制错误：', error);
+            }
+        }
+
+        async function copyAgentWithNodes(cleanAgentData, originalAgentId) {
+            try {
+                // 获取节点数据
+                const nodeList = await new Promise((resolve, reject) => {
+                    $.sm(function (re, err) {
+                        if (err) {
+                            reject(new Error('获取节点数据失败：' + err));
+                        } else {
+                            resolve(re || []);
+                        }
+                    }, ["w_agent_node.getCopyList", $.msgwhere({agent_id: [originalAgentId]})]);
+                });
+
+                if (!nodeList || nodeList.length === 0) {
+                    layer.msg('节点数据为空，请先添加节点或者只复制智能体');
+                    return;
+                }
+
+                // 插入智能体，获取新的智能体ID
+                const newAgentId = await new Promise((resolve, reject) => {
+                    $.sm(function (re, err) {
+                        if (err) {
+                            reject(new Error('插入智能体失败：' + err));
+                        } else {
+                            resolve(re);
+                        }
+                    }, ["w_agent.add", JSON.stringify(cleanAgentData)]);
+                });
+
+                // 清洗节点数据
+                const cleanNodeList = nodeList.map(node => {
+                    const cleanNode = {...node};
+                    delete cleanNode.id;
+                    delete cleanNode.creatime;
+                    delete cleanNode.altime;
+                    return cleanNode;
+                });
+
+                // 按层级排序节点：独立节点和根节点优先
+                const sortedNodes = [];
+                const remaining = [...cleanNodeList];
+
+                // 先找出独立节点和根节点  目的保持原来的节点之间的关系
+                let currentLevel = remaining.filter(node =>
+                    !node.parent_id ||
+                    node.parent_id === 0 ||
+                    node.parent_id === '' ||
+                    node.parent_id === null ||
+                    node.parent_id === undefined
+                );
+
+                const oldToNewIdMap = new Map(); // 旧节点ID -> 新节点ID的映射
+
+                while (currentLevel.length > 0) {
+                    // 添加当前层级的节点到结果中
+                    sortedNodes.push(...currentLevel);
+
+                    // 从剩余节点中移除已处理的节点
+                    currentLevel.forEach(node => {
+                        const index = remaining.indexOf(node);
+                        if (index > -1) remaining.splice(index, 1);
+                    });
+
+                    // 如果没有剩余节点，跳出循环
+                    if (remaining.length === 0) break;
+
+                    // 找出下一层级的节点
+                    const currentLevelOriginalIds = currentLevel.map(node => {
+                        // 根据节点内容找到原始节点ID
+                        const original = nodeList.find(originalNode => {
+                            return Object.keys(node).every(key =>
+                                key === 'agent_id' || key === 'parent_id' || originalNode[key] === node[key]
+                            );
+                        });
+                        return original ? original.id : null;
+                    }).filter(id => id);
+
+                    currentLevel = remaining.filter(node =>
+                        node.parent_id && currentLevelOriginalIds.includes(node.parent_id)
+                    );
+                }
+
+                // 添加剩余的节点（可能存在循环引用或孤立节点）
+                sortedNodes.push(...remaining);
+
+                // 按顺序插入节点
+                for (const node of sortedNodes) {
+                    // 更新agent_id为新的智能体ID
+                    node.agent_id = newAgentId;
+
+                    // 更新parent_id：如果有父节点，使用映射后的新ID
+                    if (node.parent_id && node.parent_id !== 0 && oldToNewIdMap.has(node.parent_id)) {
+                        node.parent_id = oldToNewIdMap.get(node.parent_id);
+                    }
+
+                    // 找到原始节点ID
+                    const originalNode = nodeList.find(originalNode => {
+                        return Object.keys(node).every(key =>
+                            key === 'agent_id' || key === 'parent_id' || originalNode[key] === node[key]
+                        );
+                    });
+
+                    // 插入节点
+                    const newNodeId = await new Promise((resolve, reject) => {
+                        $.sm(function (re, err) {
+                            if (err) {
+                                reject(new Error('插入节点失败：' + err));
+                            } else {
+                                resolve(re);
+                            }
+                        }, ["w_agent_node.add", JSON.stringify(node)]);
+                    });
+
+                    // 记录新旧ID映射
+                    if (originalNode) {
+                        oldToNewIdMap.set(originalNode.id, newNodeId);
+                    }
+                }
+
+                layer.msg('复制智能体及其节点成功');
+                table.reload('agentTable');
+
+            } catch (error) {
+                throw new Error('复制智能体及节点失败：' + error.message);
+            }
+        }
+
+        // 查看智能体的节点列表
+        function nodeListFunc(agentId,agentName){
+            jQuery.getparent().layer.open({
+                type: 2,
+                title: "智能体" + agentName + "对应的节点列表",
+                shadeClose: false,
+                area: ['1200px', '600px'],
+                content: 'html/agent/node_list.html?v=' + Arg("v") + '&type=' + "add" + '&mid=' + Arg("mid") + "&id=" + agentId
+            });
+        }
+
+        // 编辑节点直接跳转到HTML节点部分
+        function jumpGraph(agent_id){
+            var layer = jQuery.getparent().layer;
+            let table = layui.table;
+            console.log("点击了编辑节点："+agent_id);
+
+            // 打开独立的流程图页面
+            layer.open({
+                type: 2,
+                title: '节点流程图',
+                maxmin: true, // 允许最大化和最小化
+                area: ['60%', '90%'], // 设置更大的初始尺寸
+                content: 'html/agent/node_graph.html?v=' + Arg("v") + '&mid=' + Arg("mid") + '&agent_id=' + agent_id,
+                success: function (layero, index) {
+                    // 页面加载成功后的回调
+                    console.log('流程图页面加载成功');
+                },
+                end: function() {
+
+                }
+            });
+        }
+    }
+})
+```
