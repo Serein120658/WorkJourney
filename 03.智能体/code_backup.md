@@ -3149,3 +3149,766 @@ require(["jquery", "system", "layui"], function () {
     }
 })
 ```
+
+### node_add_edit.js
+
+现在的代码结构混乱  因为经历了太多次的修改和编辑了
+
+```js
+/**
+ * 作者：gongxi
+ * 时间：2025-08-27
+ */
+require.config({
+    paths: {
+        jquery: '../../sys/jquery',
+        system: '../../sys/system',
+        layui: "../../layui-btkj/layui",
+        layuicommon: "../../sys/layuicommon",
+    },
+    shim: {
+        "system": {
+            deps: ["jquery"]
+        },
+        "layui": {
+            deps: ["jquery", "system"]
+        },
+        "layuicommon": {
+            deps: ["jquery", "layui"]
+        }
+    },
+    waitSeconds: 0
+});
+
+objdata = {
+    nodeType: [
+        {
+            id: "1",
+            name: "start",   // 开始节点
+            title: "开始节点"
+        },
+        {
+            id: "2",
+            name: "process",  // 处理节点
+            title: "处理节点"
+        },
+        {
+            id: "3",
+            name: "decision",  // 决策节点
+            title: "决策节点"
+        },
+        {
+            id: "4",
+            name: "end",  // 结束节点
+            title: "结束节点"
+        },
+        {
+            id: "5",
+            name: "default",  // 默认
+            title: "默认节点"
+        }
+    ],
+    selectType: "",
+    pluginList: [],
+    selectPlugin: "",
+    nodeList: [],  // 节点列表
+    selectParentNodeId: "", // 选中的父节点id
+};
+
+require(["jquery", "system", 'layui', 'layuicommon'], function () {
+    layui.use(['form','layer', 'dropdown', 'upload'], function () {
+        let form = layui.form;
+        let upload = layui.upload;
+
+        // 角色数据配置
+        const roleData = {
+            kindergarten_web: [
+                {value: '系统管理员', title: '系统管理员',type: '1'},
+                {value: '园长', title: '园长',type: '2'},
+                {value: '教师', title: '教师',type: '3'},
+                {value: '保健医', title: '保健医',type: '4'},
+                {value: '财务', title: '财务',type: '5'},
+                {value: '安保', title: '安保',type: '6'}
+            ],
+            parent_h5: [
+                {value: '家长', title: '家长',type: '7'}
+            ]
+        };
+
+        // 适用端数据配置
+        const endData = {
+            '全部': '全部',
+            '幼儿园管理WEB': '幼儿园管理WEB',
+            '家长端H5（后期拓展）': '家长端H5（后期拓展）'
+        };
+
+        // 存储选中的值
+        let selectedEnds = [];
+        let selectedRoles = [];
+        let uploadedImageUrl = ''; // 存储上传后的图片地址
+
+        // 封面类型切换
+        form.on('radio(logoType)', function(data){
+            const logoType = data.value;
+            const customUploadSection = $('#customUploadSection');
+            const uploadArea = $('#uploadArea');
+            const uploadBtn = $('#uploadBtn');
+
+            // 初始都隐藏
+            customUploadSection.addClass('inactive');
+            uploadArea.hide();
+            uploadBtn.hide();
+
+            if (logoType === 'custom') {
+                // 选择自定义上传
+                customUploadSection.removeClass('inactive');
+                uploadArea.show();
+                uploadBtn.show();
+            } else if (logoType === 'plugin') {
+                // 选择使用数据插件封面
+                // 检查是否已关联插件
+                const currentPluginId = $('.plugin').attr('data-id');
+                if (!currentPluginId) {
+                    // 没有关联插件，提示用户
+                    layer.msg('还没有关联插件，请先关联插件', {icon: 2});
+                    // 取消选中该单选框
+                    $('input[name="logo_type"]').prop('checked', false);
+                    form.render('radio');
+                    return false;
+                }
+
+                uploadArea.hide();
+                uploadBtn.hide();
+                // 清除上传的图片
+                $('#imagePreview').hide();
+                uploadedImageUrl = '';
+            }
+        });
+
+        // 自定义下拉框功能
+        window.toggleDropdown = function(selectId) {
+            const dropdown = $('#' + selectId + ' .select-dropdown');
+            const selectInput = $('#' + selectId + ' .select-input');
+
+            // 切换下拉框显示状态
+            dropdown.toggleClass('show');
+            selectInput.toggleClass('active');
+
+            // 点击其他地方关闭下拉框
+            if (dropdown.hasClass('show')) {
+                $(document).on('click.dropdown', function(e) {
+                    if (!$(e.target).closest('#' + selectId).length) {
+                        dropdown.removeClass('show');
+                        selectInput.removeClass('active');
+                        $(document).off('click.dropdown');
+                    }
+                });
+            }
+        };
+
+        // 更新标签显示
+        function updateTags(selectId, selectedValues, dataMap) {
+            const tagsContainer = $('#' + selectId + ' .selected-tags');
+            const placeholder = $('#' + selectId + ' .placeholder');
+
+            tagsContainer.empty();
+
+            if (selectedValues.length > 0) {
+                placeholder.hide();
+                selectedValues.forEach(value => {
+                    const label = dataMap[value] || value;
+                    const tag = $(`
+                        <div class="tag-item">
+                            ${label}
+                            <span class="remove-tag" onclick="removeTag('${selectId}', '${value}')">&times;</span>
+                        </div>
+                    `);
+                    tagsContainer.append(tag);
+                });
+            } else {
+                placeholder.show();
+            }
+        }
+
+        // 移除标签
+        window.removeTag = function(selectId, value) {
+            if (selectId === 'applicableEndSelect') {
+                selectedEnds = selectedEnds.filter(v => v !== value);
+                updateTags('applicableEndSelect', selectedEnds, endData);
+                updateRoleOptions();
+                $('#hiddenApplicableEnd').val(selectedEnds.join(','));
+            } else if (selectId === 'applicableRoleSelect') {
+                selectedRoles = selectedRoles.filter(v => v !== value);
+                updateTags('applicableRoleSelect', selectedRoles, getRoleDataMap());
+                $('#hiddenApplicableRole').val(selectedRoles.join(','));
+            }
+        };
+
+        // 获取角色数据映射
+        function getRoleDataMap() {
+            let roleMap = {};
+            if (selectedEnds.includes('全部')) {
+                roleMap['全部'] = '全部';
+            } else {
+                selectedEnds.forEach(end => {
+                    // 根据适用端的中文名称来匹配角色数据
+                    let endKey = '';
+                    if (end === '幼儿园管理WEB') {
+                        endKey = 'kindergarten_web';
+                    } else if (end === '家长端H5（后期拓展）') {
+                        endKey = 'parent_h5';
+                    }
+
+                    if (endKey && roleData[endKey]) {
+                        roleData[endKey].forEach(role => {
+                            roleMap[role.value] = role.title;
+                        });
+                    }
+                });
+            }
+            return roleMap;
+        }
+
+        // 更新角色选项
+        function updateRoleOptions() {
+            const roleDropdown = $('#roleDropdown');
+            roleDropdown.empty();
+
+            // 清空已选择的角色（因为适用端改变了）
+            selectedRoles = [];
+            updateTags('applicableRoleSelect', selectedRoles, {});
+            $('#hiddenApplicableRole').val('');
+
+            if (selectedEnds.includes('全部')) {
+                // 如果选择了全部，显示全部选项
+                roleDropdown.append('<div class="option-item" data-value="全部">全部</div>');
+                $('#rolePlaceholder').text('请选择适用角色');
+            } else if (selectedEnds.length === 0) {
+                // 如果没有选择适用端，显示提示
+                $('#rolePlaceholder').text('请先选择适用端');
+            } else {
+                let allRoles = [];
+
+                // 根据选择的适用端收集角色
+                selectedEnds.forEach(end => {
+                    let endKey = '';
+                    if (end === '幼儿园管理WEB') {
+                        endKey = 'kindergarten_web';
+                    } else if (end === '家长端H5（后期拓展）') {
+                        endKey = 'parent_h5';
+                    }
+
+                    if (endKey && roleData[endKey]) {
+                        allRoles = allRoles.concat(roleData[endKey]);
+                    }
+                });
+
+                // 去重并渲染
+                const uniqueRoles = allRoles.filter((role, index, self) =>
+                    index === self.findIndex(r => r.value === role.value)
+                );
+
+                uniqueRoles.forEach(role => {
+                    roleDropdown.append(`<div class="option-item" data-value="${role.value}">${role.title}</div>`);
+                });
+
+                $('#rolePlaceholder').text('请选择适用角色');
+            }
+        }
+
+        // 初始化下拉框事件
+        function initDropdownEvents() {
+            // 适用端选项点击事件
+            $(document).on('click', '#endDropdown .option-item', function() {
+                const value = $(this).data('value');
+
+                if (value === '全部') {
+                    // 如果点击全部，清空其他选择
+                    selectedEnds = ['全部'];
+                } else {
+                    // 移除全部选项（如果存在）
+                    selectedEnds = selectedEnds.filter(v => v !== '全部');
+
+                    // 切换选择状态
+                    if (selectedEnds.includes(value)) {
+                        selectedEnds = selectedEnds.filter(v => v !== value);
+                    } else {
+                        selectedEnds.push(value);
+                    }
+                }
+
+                updateTags('applicableEndSelect', selectedEnds, endData);
+                updateRoleOptions();
+                $('#hiddenApplicableEnd').val(selectedEnds.join(','));
+            });
+
+            // 适用角色选项点击事件
+            $(document).on('click', '#roleDropdown .option-item', function() {
+                const value = $(this).data('value');
+
+                if (value === '全部') {
+                    // 如果点击全部，清空其他选择
+                    selectedRoles = ['全部'];
+                } else {
+                    // 移除全部选项（如果存在）
+                    selectedRoles = selectedRoles.filter(v => v !== '全部');
+
+                    // 切换选择状态
+                    if (selectedRoles.includes(value)) {
+                        selectedRoles = selectedRoles.filter(v => v !== value);
+                    } else {
+                        selectedRoles.push(value);
+                    }
+                }
+
+                updateTags('applicableRoleSelect', selectedRoles, getRoleDataMap());
+                $('#hiddenApplicableRole').val(selectedRoles.join(','));
+            });
+        }
+
+        // 图片上传功能
+        upload.render({
+            elem: '#uploadBtn',
+            url: '/upload/image', // 这里需要替换为实际的上传接口
+            accept: 'images',
+            acceptMime: 'image/png,image/jpg,image/jpeg',
+            size: 1024, // 1MB
+            before: function(obj) {
+                // 预读本地文件示例，不支持ie8
+                obj.preview(function(index, file, result) {
+                    $('#imagePreview').attr('src', result).show();
+                    $('#uploadText').hide();
+                });
+            },
+            done: function(res) {
+                // 如果上传失败
+                if (res.code > 0) {
+                    return layer.msg('上传失败');
+                }
+                // 上传成功，保存图片地址
+                uploadedImageUrl = res.data.url || res.url; // 根据实际接口返回字段调整
+                console.log('上传成功：', res);
+                layer.msg('图片上传成功');
+            },
+            error: function() {
+                // 演示失败状态，并实现重传
+                var uploadText = $('#uploadText');
+                uploadText.html('<span style="color: #FF5722;">上传失败</span> <a class="layui-btn layui-btn-xs demo-reload">重试</a>');
+                uploadText.find('.demo-reload').on('click', function() {
+                    upload.render({elem: '#uploadBtn'});
+                });
+            }
+        });
+
+        // 初始化类型选择和插件选择
+        initDropdown()
+
+        form.verify({
+            node_name: (value) => {
+                if(value !== ""){
+                    agent_name = value;
+                }
+                return '请输入节点名称';
+            },
+            /* node_dsc: (value) => {
+                 if (value) {
+                     try {
+                         JSON.parse(value);
+                     } catch (e) {
+                         return '参数必须是有效的 JSON 格式';
+                     }
+                 }
+             },*/
+            url: (value) => {
+                if (value) {
+                    var urlPattern = /^(https?:\/\/[^\s/$.?#].[^\s]*)$/i;
+                    if (!urlPattern.test(value)) {
+                        return '请输入有效的 HTTP 请求路径';
+                    }
+                }
+            },
+            parent_id: (value) => {
+            },
+            applicable_end: function(value, item) {
+                if (selectedEnds.length === 0) {
+                    return '请选择适用端';
+                }
+            },
+            applicable_role: function(value, item) {
+                if (selectedRoles.length === 0) {
+                    return '请选择适用角色';
+                }
+            }
+        });
+
+        if (Arg("type") === "update"  && Arg("id") !== "") {
+            var objwhere  = {}
+            objwhere.id = [Arg("id")];
+            $.sm((re, err) => {
+                if (err) {
+                    layer.msg(err);
+                } else {
+                    var data = re[0];
+
+                    form.val('formOk', {
+                        "node_name": data.node_name,
+                        "node_dsc": data.node_dsc,
+                        // 需要将 node_type 数字对应的中文
+                        "node_type": data.node_type,
+                        "url": data.url,
+                        "plugin": data.plugin_id,
+                        "parent_id": (data.parent_id === 0 || data.parent_id === null) ? "" : data.parent_id,
+                        "status": data.status.toString()
+                    });
+
+                    // 设置下拉选择器的显示值
+                    setSelectedNodeType(data.node_type);
+                    setSelectedPlugin(data.plugin_id);
+                    setSelectedParentNode(data.parent_id);
+                    setNodeLogo(data.logo);
+
+                    // 设置适用端
+                    if (data.applicable_end) {
+                        const applicableEndsStr = typeof data.applicable_end === 'string'
+                            ? data.applicable_end
+                            : data.applicable_end.toString();
+
+                        // 从逗号分割的字符串中解析
+                        selectedEnds = applicableEndsStr.split(',').filter(item => item.trim() !== '');
+                        updateTags('applicableEndSelect', selectedEnds, endData);
+                        $('#hiddenApplicableEnd').val(selectedEnds.join(','));
+
+                        // 更新角色选项
+                        updateRoleOptions();
+
+                        // 设置适用角色
+                        setTimeout(() => {
+                            if (data.applicable_role) {
+                                const applicableRolesStr = typeof data.applicable_role === 'string'
+                                    ? data.applicable_role
+                                    : data.applicable_role.toString();
+
+                                // 从逗号分割的字符串中解析
+                                selectedRoles = applicableRolesStr.split(',').filter(item => item.trim() !== '');
+                                updateTags('applicableRoleSelect', selectedRoles, getRoleDataMap());
+                                $('#hiddenApplicableRole').val(selectedRoles.join(','));
+                            }
+
+                            form.render();
+                        }, 100);
+                    }
+
+                    // 移除原有的图片设置逻辑，因为已经在上面的logo处理中包含了
+                }
+            }, ["w_agent_node.selectById", $.msgwhere(objwhere)]);
+        }else if (Arg("type") === "addChildNode" && Arg("agent_id") !== "" && Arg("parent_id") !== "") {
+            form.val('formOk', {
+                "node_name": "",
+                "node_dsc": "",
+                "node_type": "",
+                "url": "",
+                "parent_id": ""
+            });
+            // 回显原本的父节点内容和
+            setSelectedParentNode(Arg("parent_id"))
+        }
+
+        // 初始化下拉框事件
+        initDropdownEvents();
+
+        // 初始化时渲染角色选项（默认为空）
+        updateRoleOptions();
+
+        form.render();
+
+        $("#saveOK").click(function (event, callback) {
+            // 手动验证多选必填项
+            if (selectedEnds.length === 0) {
+                layer.msg('请选择适用端');
+                return false;
+            }
+
+            if (selectedRoles.length === 0) {
+                layer.msg('请选择适用角色');
+                return false;
+            }
+
+            form.submit('formOk', function (data) {
+                // 构建提交数据 - 统一使用逗号分割的字符串格式
+                console.log("表单数据",data.field);
+                var submitData = {
+                    node_name: data.field.node_name,
+                    node_dsc: data.field.node_dsc,
+                    node_type: data.field.node_type,
+                    url: data.field.url,
+                    plugin_id: data.field.plugin_id,
+                    parent_id: data.field.parent_id,
+                    applicable_end: selectedEnds.join(','),
+                    applicable_role: selectedRoles.join(','),
+                    status: data.field.status,
+                };
+
+                // 处理logo字段
+                const logoType = $('input[name="logo_type"]:checked').val();
+                if (logoType === 'plugin') {
+                    // 使用插件ID作为logo
+                    const pluginId = $('.plugin').attr('data-id');
+                    submitData.logo = pluginId;
+                } else if (logoType === 'custom' && uploadedImageUrl) {
+                    // 使用上传的图片URL作为logo
+                    submitData.logo = uploadedImageUrl;
+                } else {
+                    // 没有设置logo
+                    submitData.logo = '';
+                }
+
+                if (Arg("type") === "add") {
+                    addFn(submitData);
+                } else if (Arg("type") === "update") {
+                    updateFn(submitData);
+                }else if (Arg("type") === "addChildNode") {
+                    // 拿智能体id 和 父节点id
+                    let agent_id = Arg("agent_id");
+                    let parent_id = Arg("parent_id");
+                    addChildNode(submitData, agent_id, parent_id);
+                }
+                return false;
+            });
+        });
+    });
+
+    // 修改initDropdown函数
+    function initDropdown(){
+        var dropdown = layui.dropdown;
+
+        dropdown.render({
+            elem: '#nodeTypeSelect',
+            data: objdata.nodeType,
+            click: function (data, othis) {
+                $('.node_type').val(data.title);  // 显示中文名称
+                $('.node_type').attr('data-id', data.id);  // 将ID存储在data属性中
+                $('.node_type').attr('placeholder', '');  // 清空placeholder
+                // 保存选中的类型
+                objdata.selectType = data.name;
+            }
+        });
+
+        // 获取插件列表和节点列表  并初始化插件下拉框和父节点下拉框
+        $.sm((re, err) => {
+            if (err) {
+                layer.msg(err);
+            } else {
+                console.log(re);
+                // 将获取到的插件数据转换为标准格式
+                const pluginData = re[0].map(item => ({
+                    id: item.id,
+                    title: item.plugin_name + '(ID:' + item.id + ')',
+                    plugin_name: item.plugin_name
+                }));
+
+                // 存储插件列表到objdata中
+                objdata.pluginList = pluginData;
+
+                // 渲染插件下拉框
+                dropdown.render({
+                    elem: '#pluginSelect',
+                    data: pluginData,
+                    click: function (data, othis) {
+                        $('.plugin').val(data.title);  // 显示插件名称
+                        $('.plugin').attr('data-id', data.id);  // 将ID存储在data属性中
+                        $('.plugin').attr('placeholder', '');  // 清空placeholder
+                        // 保存选中的插件ID
+                        objdata.selectPlugin = data.id;
+                    }
+                });
+                // 将获取到的节点数据转换为标准格式
+                const nodeData = re[1].map(item => ({
+                    id: item.id,
+                    title: item.node_name + '(ID:' + item.id + ')',
+                    node_name: item.node_name
+                }));
+                objdata.nodeList = nodeData;
+
+                dropdown.render({
+                    elem: '#parentNodeSelect',
+                    data: nodeData,
+                    click: function (data, othis) {
+                        $('.parent_node').val(data.title);  // 显示节点名称
+                        $('.parent_node').attr('data-id', data.id);  // 将ID存储在data属性中
+                        $('.parent_node').attr('placeholder', '');  // 清空placeholder
+                        // 存储选中的父节点ID
+                        objdata.selectParentNodeId = data.id;
+                    }
+                })
+            }
+        }, [
+            ["w_plugin.getIdAndName"],
+            ["w_agent_node.getIdAndName"]
+        ],{ msgid :"node_plugin_batch"});
+    }
+
+    function setSelectedNodeType(nodeTypeId) {
+        var selectedType = objdata.nodeType.find(type => type.id === nodeTypeId);
+        if (selectedType) {
+            $('.node_type').val(selectedType.title);  // 显示中文名称
+            $('.node_type').attr('data-id', selectedType.id);  // 存储ID
+            $('.node_type').attr('placeholder', '');
+            objdata.selectType = selectedType.name;
+        }
+    }
+
+    function setSelectedPlugin(pluginId){
+        // 确保pluginList已经加载
+        if (objdata.pluginList.length === 0) {
+            // 如果插件列表还没加载，延迟执行
+            setTimeout(() => setSelectedPlugin(pluginId), 100);
+            return;
+        }
+
+        var selectedPlugin = objdata.pluginList.find(plugin => plugin.id == pluginId); // 使用==比较，因为可能存在类型转换
+        if (selectedPlugin) {
+            $('.plugin').val(selectedPlugin.title);  // 显示插件名称
+            $('.plugin').attr('data-id', selectedPlugin.id);  // 存储ID
+            $('.plugin').attr('placeholder', '');
+            objdata.selectPlugin = selectedPlugin.id;  // 修正：存储ID而不是title
+        }else{
+            // 说明没有绑定插件  设置为无
+            $('.plugin').val('');
+        }
+
+    }
+    function setSelectedParentNode(parentNodeId) {
+        // 确保nodeList已经加载
+        if (objdata.nodeList.length === 0) {
+            // 如果节点列表还没加载，延迟执行
+            setTimeout(() => setSelectedParentNode(parentNodeId), 100);
+        }
+        var selectedNode = objdata.nodeList.find(node => node.id == parentNodeId);
+        if (selectedNode) {
+            console.log(selectedNode);
+            $('.parent_node').val(selectedNode.title);  // 显示节点名称
+            $('.parent_node').attr('data-id', selectedNode.id);  // 存储ID
+            $('.parent_node').attr('placeholder', '');
+            objdata.selectParentNodeId = selectedNode.id;
+        }else{
+            $('.parent_node').val('');
+        }
+    }
+    function setNodeLogo(nodeLogo){
+        var form = layui.form;
+        // TODO: 处理logo回显逻辑
+        if (nodeLogo) {
+            // 判断logo是否为纯数字（插件ID）
+            if (/^\d+$/.test(nodeLogo.toString())) {
+                // 纯数字，说明是插件ID，选中plugin单选框
+                $('input[name="logo_type"][value="plugin"]').prop('checked', true);
+                form.render('radio');
+            } else if(nodeLogo) { // 不是纯数字，说明是图片URL，选中custom单选框并显示图片
+
+                $('input[name="logo_type"][value="custom"]').prop('checked', true);
+                uploadedImageUrl = nodeLogo;
+                $('#imagePreview').attr('src', nodeLogo).show();
+                $('#uploadText').hide();
+
+                // 显示上传区域
+                const customUploadSection = $('#customUploadSection');
+                const uploadArea = $('#uploadArea');
+                const uploadBtn = $('#uploadBtn');
+                customUploadSection.removeClass('inactive');
+                uploadArea.show();
+                uploadBtn.show();
+
+                form.render('radio');
+            }else{  // todo 得到的logo为空的情况 单选框不设置选中状态
+
+            }
+        }
+    }
+
+    function addFn(data) {
+        data.agent_id = Arg("id");
+        $.sm((re, err) => {
+            if (err) {
+                layer.msg(err);
+            } else {
+                layer.msg("添加智能体节点成功！");
+            }
+        }, ["w_agent_node.add", JSON.stringify(filterData( data))]);
+    }
+
+    function updateFn(data) {
+        $.sm((re, err) => {
+            if (err) {
+                layer.msg(err);
+            } else {
+                layer.msg("修改节点成功");
+            }
+        }, ["w_agent_node.update", JSON.stringify(filterData( data)), $.msgwhere({id: [Arg("id")]})]);
+    }
+
+    // 添加子节点
+    function addChildNode(data,agent_id, parent_id) {
+        data.agent_id = agent_id;
+
+        $.sm((re, err) => {
+            if (err) {
+                layer.msg(err);
+            }else {
+                layer.msg("添加子节点成功！");
+            }
+        }, ["w_agent_node.add", JSON.stringify(filterData(data))])
+    }
+
+    // 过滤数据
+    function filterData(data) {
+        // 获取真正的节点类型ID（从data-id属性中获取）
+        var nodeTypeId = $('.node_type').attr('data-id');
+        if (nodeTypeId) {
+            data.node_type = parseInt(nodeTypeId);
+        }else{
+            data.node_type = 5; // 默认类型
+        }
+
+        // 获取真正的插件ID（从data-id属性中获取）
+        var pluginId = $('.plugin').attr('data-id');
+        if (pluginId) {
+            data.plugin_id = pluginId;
+        }
+        // 获取真正的父节点ID（从data-id属性中获取）
+        var parentNodeId = $('.parent_node').attr('data-id');
+        if (parentNodeId) {
+            data.parent_id = parentNodeId;
+        }
+
+        return data;
+    }
+
+});
+```
+
+
+
+### 1
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
