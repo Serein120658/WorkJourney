@@ -4,9 +4,12 @@
 
 山高路远，看世界也找自己
 
-### 🎉🎉🎉文件说明
-1. 00.架构文档
 
-   00.whoami3.0是总文档
+🎉🎉🎉
 
-2. 01.熟悉阶段
+[Jobs的毕业演讲 You’ve got to find what you love](./个人提升/07.You’ve got to find what you love.md)
+
+[HTML版本](./个人提升/07.You’ve got to find what you love.html)
+
+## *Your time is limited, so don't waste it living someone else's life.*
+
